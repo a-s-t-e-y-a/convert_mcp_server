@@ -1,6 +1,7 @@
 import os
 import importlib
 
+
 class Registry:
     def __init__(self):
         self.modules = []

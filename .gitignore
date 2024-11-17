@@ -1,3 +1,7 @@
 outputs/
 __pycache__/
 .vscode/
+dist/
+*.egg-info/
+build/
+.DS_Store

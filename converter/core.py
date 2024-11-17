@@ -3,6 +3,7 @@ from converter.registry import Registry
 import os
 import sys
 
+
 @click.command()
 @click.argument('input_file')
 @click.argument('output_file')
@@ -20,12 +21,15 @@ def convert(input_file, output_file):
     except Exception as e:
         error(f"An error occurred: {e}")
 
+
 def success(msg):
-    click.echo(click.style(msg, fg='green'), None, True, True, True)            
+    click.echo(click.style(msg, fg='green'), None, True, True, True)
+
 
 def error(msg):
     click.echo(click.style(msg, fg='red'), None, True, True, True)
-    sys.exit(1) 
+    sys.exit(1)
+
 
 if __name__ == "__main__":
     convert()
