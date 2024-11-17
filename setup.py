@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="convert-all",  # Package name
-    version="1.0.0",          # Version number
+    version="1.0.1",          # Version number
     author="Pavel Polivka",
     author_email="pavel.polivka@hey.com",
     description="A CLI tool to convert files between formats",
