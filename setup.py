@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="convert-all",  # Package name
-    version="1.0.1",          # Version number
+    version="1.0.2",          # Version number
     author="Pavel Polivka",
     author_email="pavel.polivka@hey.com",
     description="A CLI tool to convert files between formats",
@@ -14,6 +14,9 @@ setup(
         "click",
         "ffmpeg-python",
         "Pillow",
+        "python-docx",
+        "PyMuPDF",
+        "reportlab"
     ],
     classifiers=[
         "Programming Language :: Python :: 3",
@@ -23,6 +26,7 @@ setup(
     python_requires=">=3.7",
     entry_points={
         "console_scripts": [
+            "convert-all=converter.core:convert",
             "convert=converter.core:convert",
         ],
     },
