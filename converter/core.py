@@ -12,6 +12,17 @@ def convert(input_file, output_file):
     try:
         if not os.path.exists(input_file):
             error(f"Input file {input_file} does not exist.")
+
+        if os.path.exists(output_file):
+            # Prompt the user to confirm overwriting
+            confirm = input(
+                f"Target file '{output_file}' already exists. "
+                "Do you want to overwrite it? (y/n): "
+            ).strip().lower()
+            if confirm != 'y':
+                print("Operation cancelled.")
+                return
+
         registry = Registry()
         module = registry.find_module(input_file, output_file)
         if not module:
