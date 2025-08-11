@@ -1,0 +1,24 @@
+{
+    "server": {
+        "host": "0.0.0.0",
+        "port": 8000,
+        "reload": false
+    },
+    "ssl": {
+        "enabled": false,
+        "keyfile": null,
+        "certfile": null
+    },
+    "mcp": {
+        "name": "file-converter",
+        "version": "1.0.0",
+        "description": "File format converter with support for images, documents, audio, and video",
+        "validate_endpoint": "/mcp/validate",
+        "main_endpoint": "/mcp"
+    },
+    "cors": {
+        "allow_origins": ["*"],
+        "allow_methods": ["*"],
+        "allow_headers": ["*"]
+    }
+}
