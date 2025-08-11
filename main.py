@@ -253,8 +253,8 @@ async def convert_file_legacy(
 
 # --- Run MCP Server ---
 async def main():
-    print("🚀 Starting File Converter MCP server on http://0.0.0.0:8086")
-    await mcp.run_async("streamable-http", host="0.0.0.0", port=8086)
+    print("🚀 Starting File Converter MCP server on http://0.0.0.0:8000")
+    await mcp.run_async("streamable-http", host="0.0.0.0", port=8000)
 
 if __name__ == "__main__":
     asyncio.run(main())
