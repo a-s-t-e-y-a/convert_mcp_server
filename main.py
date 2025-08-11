@@ -1,13 +1,18 @@
 import os
 import tempfile
 import shutil
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Annotated
 from fastapi import FastAPI, File, UploadFile, HTTPException, Header, Form
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 import asyncio
 from converter.registry import Registry
+from fastmcp import FastMCP
+from fastmcp.server.auth.providers.bearer import BearerAuthProvider, RSAKeyPair
+from mcp.server.auth.provider import AccessToken
+from mcp.types import TextContent, INVALID_PARAMS, INTERNAL_ERROR
+from mcp import ErrorData, McpError
 
 app = FastAPI(title="File Converter API")
 
@@ -23,147 +28,47 @@ app.add_middleware(
 # Initialize registry
 registry = Registry()
 
-# MCP Protocol Models
-class ToolCall(BaseModel):
-    name: str
-    arguments: Dict[str, Any]
+# --- Auth Provider ---
+class SimpleBearerAuthProvider(BearerAuthProvider):
+    def __init__(self, token: str):
+        k = RSAKeyPair.generate()
+        super().__init__(public_key=k.public_key, jwks_uri=None, issuer=None, audience=None)
+        self.token = token
 
-class MCPRequest(BaseModel):
-    jsonrpc: str = "2.0"
-    id: str
-    method: str
-    params: Dict[str, Any] = {}
-
-class MCPResponse(BaseModel):
-    jsonrpc: str = "2.0"
-    id: str
-    result: Dict[str, Any] = {}
-    error: Dict[str, Any] = None
-
-# Validation endpoint for MCP
-@app.post("/mcp/validate")
-async def validate_token(bearer_token: str = Header(..., alias="authorization")):
-    """Validate bearer token and return phone number for MCP authentication."""
-    # Remove 'Bearer ' prefix if present
-    token = bearer_token.replace("Bearer ", "") if bearer_token.startswith("Bearer ") else bearer_token
-    
-    # For demo purposes, returning a dummy phone number
-    # In production, you would validate the token against your auth system
-    if token:
-        return {"phone": "918840330283"}  # Replace with actual phone validation
-    else:
-        raise HTTPException(status_code=401, detail="Invalid token")
-
-# MCP endpoint
-@app.post("/mcp")
-async def mcp_handler(request: MCPRequest):
-    """Handle MCP protocol requests."""
-    try:
-        if request.method == "initialize":
-            return MCPResponse(
-                id=request.id,
-                result={
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": {
-                        "tools": {}
-                    },
-                    "serverInfo": {
-                        "name": "file-converter",
-                        "version": "1.0.0"
-                    }
-                }
+    async def load_access_token(self, token: str) -> AccessToken | None:
+        if token == self.token:
+            return AccessToken(
+                token=token,
+                client_id="puch-client",
+                scopes=["*"],
+                expires_at=None,
             )
-        
-        elif request.method == "tools/list":
-            tools = []
-            
-            # Get supported formats from all modules
-            supported_conversions = []
-            for module in registry.modules:
-                formats = module.SUPPORTED_FORMATS
-                for input_format in formats.get("input", []):
-                    for output_format in formats.get("output", []):
-                        if input_format != output_format:
-                            supported_conversions.append(f"{input_format} to {output_format}")
-            
-            tools.append({
-                "name": "convert_file",
-                "description": f"Convert files between different formats. Supported conversions: {', '.join(supported_conversions)}",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {
-                        "input_format": {
-                            "type": "string",
-                            "description": "Input file format (e.g., .pdf, .docx, .png)"
-                        },
-                        "output_format": {
-                            "type": "string",
-                            "description": "Output file format (e.g., .pdf, .docx, .png)"
-                        },
-                        "file_content": {
-                            "type": "string",
-                            "description": "Base64 encoded file content"
-                        }
-                    },
-                    "required": ["input_format", "output_format", "file_content"]
-                }
-            })
-            
-            tools.append({
-                "name": "list_supported_formats",
-                "description": "List all supported input and output formats",
-                "inputSchema": {
-                    "type": "object",
-                    "properties": {},
-                    "required": []
-                }
-            })
-            
-            return MCPResponse(
-                id=request.id,
-                result={"tools": tools}
-            )
-        
-        elif request.method == "tools/call":
-            tool_name = request.params.get("name")
-            arguments = request.params.get("arguments", {})
-            
-            if tool_name == "convert_file":
-                return await handle_convert_file(request.id, arguments)
-            elif tool_name == "list_supported_formats":
-                return await handle_list_formats(request.id)
-            else:
-                return MCPResponse(
-                    id=request.id,
-                    error={"code": -32601, "message": f"Unknown tool: {tool_name}"}
-                )
-        
-        else:
-            return MCPResponse(
-                id=request.id,
-                error={"code": -32601, "message": f"Unknown method: {request.method}"}
-            )
-    
-    except Exception as e:
-        return MCPResponse(
-            id=request.id,
-            error={"code": -32603, "message": f"Internal error: {str(e)}"}
-        )
+        return None
 
-async def handle_convert_file(request_id: str, arguments: Dict[str, Any]) -> MCPResponse:
-    """Handle file conversion tool call."""
+# --- MCP Server Setup ---
+AUTH_TOKEN = "436eSs8id4Uj1D3CaQ6SVn4yDNxFX8tx3rezJXNw_BE"  # Your secure token
+MY_NUMBER = "918840330283"  # Your phone number
+
+mcp = FastMCP(
+    "File Converter MCP Server",
+    auth=SimpleBearerAuthProvider(AUTH_TOKEN),
+)
+
+# --- Tool: validate (required by Puch) ---
+@mcp.tool
+async def validate() -> str:
+    return MY_NUMBER
+
+# --- Tool: convert_file ---
+@mcp.tool
+async def convert_file(
+    input_format: Annotated[str, Field(description="Input file format (e.g., pdf, docx, png)")],
+    output_format: Annotated[str, Field(description="Output file format (e.g., pdf, docx, png)")],
+    file_content: Annotated[str, Field(description="Base64 encoded file content")]
+) -> str:
+    """Convert files between different formats. Supports documents, images, videos, and audio."""
     try:
         import base64
-        
-        input_format = arguments.get("input_format")
-        output_format = arguments.get("output_format")
-        file_content = arguments.get("file_content")
-        
-        if not all([input_format, output_format, file_content]):
-            return MCPResponse(
-                id=request_id,
-                error={"code": -32602, "message": "Missing required parameters"}
-            )
         
         # Ensure formats start with dot
         if not input_format.startswith('.'):
@@ -180,19 +85,19 @@ async def handle_convert_file(request_id: str, arguments: Dict[str, Any]) -> MCP
                 break
         
         if not module:
-            return MCPResponse(
-                id=request_id,
-                error={"code": -32602, "message": f"Conversion from {input_format} to {output_format} not supported"}
-            )
+            raise McpError(ErrorData(
+                code=INVALID_PARAMS,
+                message=f"Conversion from {input_format} to {output_format} not supported"
+            ))
         
         # Decode file content
         try:
             file_data = base64.b64decode(file_content)
         except Exception:
-            return MCPResponse(
-                id=request_id,
-                error={"code": -32602, "message": "Invalid base64 file content"}
-            )
+            raise McpError(ErrorData(
+                code=INVALID_PARAMS,
+                message="Invalid base64 file content"
+            ))
         
         # Create temporary files
         with tempfile.NamedTemporaryFile(suffix=input_format, delete=False) as input_temp:
@@ -213,15 +118,7 @@ async def handle_convert_file(request_id: str, arguments: Dict[str, Any]) -> MCP
             # Encode to base64
             converted_base64 = base64.b64encode(converted_data).decode('utf-8')
             
-            return MCPResponse(
-                id=request_id,
-                result={
-                    "content": [{
-                        "type": "text",
-                        "text": f"File converted successfully from {input_format} to {output_format}. Converted file content (base64): {converted_base64}"
-                    }]
-                }
-            )
+            return f"File converted successfully from {input_format} to {output_format}. Converted file content (base64): {converted_base64}"
         
         finally:
             # Cleanup temporary files
@@ -230,14 +127,18 @@ async def handle_convert_file(request_id: str, arguments: Dict[str, Any]) -> MCP
             if os.path.exists(output_path):
                 os.unlink(output_path)
     
+    except McpError:
+        raise
     except Exception as e:
-        return MCPResponse(
-            id=request_id,
-            error={"code": -32603, "message": f"Conversion failed: {str(e)}"}
-        )
+        raise McpError(ErrorData(
+            code=INTERNAL_ERROR,
+            message=f"Conversion failed: {str(e)}"
+        ))
 
-async def handle_list_formats(request_id: str) -> MCPResponse:
-    """Handle list supported formats tool call."""
+# --- Tool: list_supported_formats ---
+@mcp.tool
+async def list_supported_formats() -> str:
+    """List all supported input and output formats for file conversion."""
     try:
         formats_info = {}
         
@@ -245,23 +146,40 @@ async def handle_list_formats(request_id: str) -> MCPResponse:
             module_name = module.__name__.split('.')[-1]
             formats_info[module_name] = module.SUPPORTED_FORMATS
         
-        return MCPResponse(
-            id=request_id,
-            result={
-                "content": [{
-                    "type": "text",
-                    "text": f"Supported formats by module:\n{formats_info}"
-                }]
-            }
-        )
+        # Format nicely for display
+        result = "📋 **Supported File Conversion Formats:**\n\n"
+        
+        for module_name, formats in formats_info.items():
+            result += f"**{module_name.replace('_', ' ').title()}:**\n"
+            result += f"- Input: {', '.join(formats.get('input', []))}\n"
+            result += f"- Output: {', '.join(formats.get('output', []))}\n\n"
+        
+        return result
     
     except Exception as e:
-        return MCPResponse(
-            id=request_id,
-            error={"code": -32603, "message": f"Failed to list formats: {str(e)}"}
-        )
+        raise McpError(ErrorData(
+            code=INTERNAL_ERROR,
+            message=f"Failed to list formats: {str(e)}"
+        ))
 
-# Standard REST API endpoints
+# MCP Protocol Models
+class ToolCall(BaseModel):
+    name: str
+    arguments: Dict[str, Any]
+
+class MCPRequest(BaseModel):
+    jsonrpc: str = "2.0"
+    id: str
+    method: str
+    params: Dict[str, Any] = {}
+
+class MCPResponse(BaseModel):
+    jsonrpc: str = "2.0"
+    id: str
+    result: Dict[str, Any] = {}
+    error: Dict[str, Any] = None
+
+# Standard REST API endpoints (legacy compatibility)
 @app.get("/")
 async def root():
     return {"message": "File Converter API", "version": "1.0.0"}
@@ -276,7 +194,7 @@ async def get_supported_formats():
     return formats
 
 @app.post("/convert")
-async def convert_file(
+async def convert_file_legacy(
     file: UploadFile = File(...),
     output_format: str = Form(...)
 ):
@@ -333,6 +251,10 @@ async def convert_file(
         if os.path.exists(input_path):
             os.unlink(input_path)
 
+# --- Run MCP Server ---
+async def main():
+    print("🚀 Starting File Converter MCP server on http://0.0.0.0:8086")
+    await mcp.run_async("streamable-http", host="0.0.0.0", port=8086)
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, ssl_keyfile=None, ssl_certfile=None)
+    asyncio.run(main())
